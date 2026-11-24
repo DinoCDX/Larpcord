@@ -30,12 +30,12 @@ import me.lampu.lampcord.shared.settings.ThemePaletteStyle
 import me.lampu.lampcord.shared.settings.PanelAnimation
 import me.lampu.lampcord.shared.settings.PanelType
 import me.lampu.lampcord.shared.state.SettingsStore
-import me.lampu.lampcord.shared.state.ThemeStore
 import me.lampu.lampcord.shared.ui.components.AsyncImage
 import me.lampu.lampcord.shared.ui.components.ExpressiveSwitch
 import me.lampu.lampcord.shared.ui.components.HsvColorPicker
 import me.lampu.lampcord.shared.ui.components.settings.*
 import me.lampu.lampcord.shared.ui.icons.Icons
+import me.lampu.lampcord.shared.ui.kit.clickableCursor
 import me.lampu.lampcord.shared.utils.FilePicker
 import me.lampu.lampcord.shared.utils.importCustomFont
 import org.koin.compose.koinInject
@@ -44,13 +44,14 @@ import kotlin.io.encoding.ExperimentalEncodingApi
 
 private enum class PaletteOption { DYNAMIC, CUSTOM }
 
+private enum class ThemeModeOption { LIGHT, DARK, PURE_BLACK, AUTO }
+
 @Composable
 fun AppearanceSettings(
     onNavigateToTheming: () -> Unit,
     onNavigateToNavigation: () -> Unit,
     onBack: () -> Unit,
     settingsStore: SettingsStore = koinInject(),
-    themeStore: ThemeStore = koinInject()
 ) {
     SettingsSubScreen(
         title = "Appearance",
@@ -60,7 +61,6 @@ fun AppearanceSettings(
             onNavigateToTheming = onNavigateToTheming,
             onNavigateToNavigation = onNavigateToNavigation,
             settingsStore = settingsStore,
-            themeStore = themeStore
         )
     }
 }
@@ -70,148 +70,35 @@ fun AppearanceSettingsContent(
     onNavigateToTheming: () -> Unit,
     onNavigateToNavigation: () -> Unit,
     settingsStore: SettingsStore = koinInject(),
-    themeStore: ThemeStore = koinInject()
 ) {
     val platform = remember { me.lampu.lampcord.shared.utils.getPlatformName() }
     val isDesktop = platform != "android" && platform != "ios"
     val isMobile = !isDesktop
 
-    fun updateTheme(theme: String) {
-        settingsStore.updateUserSettings(UserSettings.Partial(theme = theme))
-    }
-
     Column(modifier = Modifier.fillMaxWidth()) {
         Material3SettingsGroup(
-            title = "Themes",
-            items = buildList {
-                themeStore.activeThemes.forEach { theme ->
-                    add(Material3SettingsItem(
-                        icon = null,
-                        title = { Text(theme.manifest.name) },
-                        description = theme.manifest.author?.let { { Text("by $it") } },
-                        trailingContent = {
-                            IconButton(onClick = { 
-                                themeStore.toggleTheme(theme, false)
-                            }) {
-                                Icon(Icons.Filled.Close, "Remove Theme")
-                            }
-                        }
-                    ))
-                }
-                add(Material3SettingsItem(
+            title = "Theme",
+            items = listOf(
+                Material3SettingsItem(
                     icon = Icons.Rounded.Palette,
-                    title = { Text("Themer") },
-                    description = { Text("Manage and edit custom themes") },
+                    title = { Text("Theme") },
+                    description = { Text("Theme mode, colors, and custom themes") },
                     onClick = onNavigateToTheming
-                ))
-            }
+                )
+            )
         )
 
         Material3SettingsGroup(
             title = "Wallpaper",
             items = listOf(
                 Material3SettingsItem(
-                    title = { Text("Wallpaper & Colors") },
+                    title = { Text("Wallpaper") },
                     description = {
                         Column(verticalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.padding(top = 8.dp)) {
                             AppearancePreview(settingsStore)
-                            ThemeControls(settingsStore, ::updateTheme)
+                            WallpaperControls(settingsStore)
                         }
                     }
-                )
-            )
-        )
-
-        Material3SettingsGroup(
-            title = "Color palette",
-            items = listOf(
-                Material3SettingsItem(
-                    title = { Text("Visual Style") },
-                    description = {
-                        Column(modifier = Modifier.padding(top = 8.dp)) {
-                            SettingsButtonGroup(
-                                options = ThemePaletteStyle.entries.toList(),
-                                selectedOption = settingsStore.themePaletteStyle,
-                                onOptionSelected = { settingsStore.themePaletteStyle = it },
-                                iconProvider = { style: ThemePaletteStyle, isSelected ->
-                                    when (style) {
-                                        ThemePaletteStyle.TONAL_SPOT -> if (isSelected) Icons.Filled.Palette else Icons.Rounded.Palette
-                                        ThemePaletteStyle.EXPRESSIVE -> if (isSelected) Icons.Filled.FormatPaint else Icons.Rounded.FormatPaint
-                                        ThemePaletteStyle.VIBRANT -> if (isSelected) Icons.Filled.AutoAwesome else Icons.Rounded.AutoAwesome
-                                        ThemePaletteStyle.RAINBOW -> if (isSelected) Icons.Filled.Texture else Icons.Rounded.Texture
-                                        ThemePaletteStyle.MONOCHROME -> if (isSelected) Icons.Filled.Rectangle else Icons.Rounded.Rectangle
-                                        ThemePaletteStyle.FRUIT_SALAD -> if (isSelected) Icons.Filled.Fastfood else Icons.Rounded.Fastfood
-                                        else -> if (isSelected) Icons.Filled.Palette else Icons.Rounded.Palette
-                                    }
-                                },
-                                labelProvider = { it.name.lowercase().replace('_', ' ').replaceFirstChar { char -> char.uppercase() } }
-                            )
-                        }
-                    }
-                ),
-                Material3SettingsItem(
-                    title = { Text(stringResource(Res.string.screenshare_source)) },
-                    description = {
-                        Column(modifier = Modifier.padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(16.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                val selectedOption = if (settingsStore.materialYou) PaletteOption.DYNAMIC else PaletteOption.CUSTOM
-                                
-                                SettingsButtonGroupCustomIcon(
-                                    options = PaletteOption.entries,
-                                    selectedOption = selectedOption,
-                                    onOptionSelected = { option ->
-                                        settingsStore.materialYou = option == PaletteOption.DYNAMIC
-                                    },
-                                    iconProvider = { option, isSelected ->
-                                        when (option) {
-                                            PaletteOption.DYNAMIC -> {
-                                                Icon(
-                                                    Icons.Rounded.AutoAwesome, 
-                                                    null, 
-                                                    modifier = Modifier.size(18.dp),
-                                                    tint = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.primary
-                                                )
-                                            }
-                                            PaletteOption.CUSTOM -> {
-                                                val accentColor = remember(settingsStore.accentColor) {
-                                                    try {
-                                                        Color(settingsStore.accentColor.removePrefix("#").toLong(16) or 0xFF000000)
-                                                    } catch (_: Exception) {
-                                                        Color(0xFF6750A4)
-                                                    }
-                                                }
-                                                Box(
-                                                    modifier = Modifier
-                                                        .size(18.dp)
-                                                        .clip(RoundedCornerShape(4.dp))
-                                                        .background(accentColor)
-                                                        .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
-                                                )
-                                            }
-                                        }
-                                    },
-                                    labelProvider = { 
-                                        when (it) {
-                                            PaletteOption.DYNAMIC -> "Dynamic"
-                                            PaletteOption.CUSTOM -> "Custom"
-                                        }
-                                    }
-                                )
-
-                                ColorHexPicker(settingsStore)
-                            }
-                        }
-                    }
-                ),
-                switchSettingsItem(
-                    title = "Sync across clients",
-                    description = "Sync your theme selection across all Discord clients.",
-                    checked = settingsStore.syncAppearance,
-                    onCheckedChange = { settingsStore.syncAppearance = it }
                 )
             )
         )
@@ -219,48 +106,38 @@ fun AppearanceSettingsContent(
         Material3SettingsGroup(
             title = "Animation",
             items = listOf(
-                Material3SettingsItem(
-                    title = { Text("Panel Animation") },
-                    description = {
-                        Column(modifier = Modifier.padding(top = 8.dp)) {
-                            SettingsButtonGroup(
-                                options = PanelAnimation.entries.toList(),
-                                selectedOption = settingsStore.panelAnimation,
-                                onOptionSelected = { settingsStore.panelAnimation = it },
-                                iconProvider = { animation, isSelected ->
-                                    when (animation) {
-                                        PanelAnimation.MINIMAL -> if (isSelected) Icons.Filled.Speed else Icons.Rounded.Speed
-                                        PanelAnimation.EXPRESSIVE -> if (isSelected) Icons.Filled.AutoAwesome else Icons.Rounded.AutoAwesome
-                                    }
-                                },
-                                labelProvider = { it.name.lowercase().replaceFirstChar { char -> char.uppercase() } }
-                            )
+                selectSettingsItem(
+                    title = "Panel Animation",
+                    options = PanelAnimation.entries.toList(),
+                    selectedOption = settingsStore.panelAnimation,
+                    onOptionSelected = { settingsStore.panelAnimation = it },
+                    optionLabel = { it.name.lowercase().replaceFirstChar { char -> char.uppercase() } },
+                    optionIcon = { animation, isSelected ->
+                        val icon = when (animation) {
+                            PanelAnimation.MINIMAL -> if (isSelected) Icons.Filled.Speed else Icons.Rounded.Speed
+                            PanelAnimation.EXPRESSIVE -> if (isSelected) Icons.Filled.AutoAwesome else Icons.Rounded.AutoAwesome
                         }
-                    }
+                        Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
+                    },
                 ),
-                Material3SettingsItem(
-                    title = { Text("Panel Layout") },
-                    description = {
-                        Column(modifier = Modifier.padding(top = 8.dp)) {
-                            SettingsButtonGroup(
-                                options = PanelType.entries.toList(),
-                                selectedOption = settingsStore.panelType,
-                                onOptionSelected = { settingsStore.panelType = it },
-                                iconProvider = { type, isSelected ->
-                                    when (type) {
-                                        PanelType.CENTER -> if (isSelected) Icons.Filled.List else Icons.Rounded.List
-                                        PanelType.OVERLAPPING -> if (isSelected) Icons.Filled.MenuOpen else Icons.Rounded.MenuOpen
-                                    }
-                                },
-                                labelProvider = { type ->
-                                    when (type) {
-                                        PanelType.CENTER -> "Center Panel"
-                                        PanelType.OVERLAPPING -> "Overlapping"
-                                    }
-                                }
-                            )
+                selectSettingsItem(
+                    title = "Panel Layout",
+                    options = PanelType.entries.toList(),
+                    selectedOption = settingsStore.panelType,
+                    onOptionSelected = { settingsStore.panelType = it },
+                    optionLabel = { type ->
+                        when (type) {
+                            PanelType.CENTER -> "Center Panel"
+                            PanelType.OVERLAPPING -> "Overlapping"
                         }
-                    }
+                    },
+                    optionIcon = { type, isSelected ->
+                        val icon = when (type) {
+                            PanelType.CENTER -> if (isSelected) Icons.Filled.List else Icons.Rounded.List
+                            PanelType.OVERLAPPING -> if (isSelected) Icons.Filled.MenuOpen else Icons.Rounded.MenuOpen
+                        }
+                        Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
+                    },
                 )
             )
         )
@@ -270,27 +147,19 @@ fun AppearanceSettingsContent(
         Material3SettingsGroup(
             title = "Display",
             items = buildList {
-                add(Material3SettingsItem(
-                    title = { Text("UI Density") },
-                    description = { 
-                        Column(modifier = Modifier.padding(top = 4.dp)) {
-                            Text("Adjust the space between server, channel, and member lists.")
-                            Spacer(Modifier.height(12.dp))
-                            SettingsButtonGroup(
-                                options = me.lampu.lampcord.shared.settings.MessageSpacingMode.entries.toList(),
-                                selectedOption = settingsStore.messageSpacingMode,
-                                onOptionSelected = { settingsStore.messageSpacingMode = it },
-                                iconProvider = null,
-                                labelProvider = {
-                                    when (it) {
-                                        me.lampu.lampcord.shared.settings.MessageSpacingMode.COMPACT -> "Compact"
-                                        me.lampu.lampcord.shared.settings.MessageSpacingMode.DEFAULT -> "Default"
-                                        me.lampu.lampcord.shared.settings.MessageSpacingMode.SPACIOUS -> "Spacious"
-                                    }
-                                }
-                            )
+                add(selectSettingsItem(
+                    title = "UI Density",
+                    description = "Adjust the space between server, channel, and member lists.",
+                    options = me.lampu.lampcord.shared.settings.MessageSpacingMode.entries.toList(),
+                    selectedOption = settingsStore.messageSpacingMode,
+                    onOptionSelected = { settingsStore.messageSpacingMode = it },
+                    optionLabel = {
+                        when (it) {
+                            me.lampu.lampcord.shared.settings.MessageSpacingMode.COMPACT -> "Compact"
+                            me.lampu.lampcord.shared.settings.MessageSpacingMode.DEFAULT -> "Default"
+                            me.lampu.lampcord.shared.settings.MessageSpacingMode.SPACIOUS -> "Spacious"
                         }
-                    }
+                    },
                 ))
                 if (!isMobile) return@buildList
                 add(Material3SettingsItem(
@@ -305,88 +174,26 @@ fun AppearanceSettingsContent(
         Material3SettingsGroup(
             title = "Typography",
             items = buildList {
-                add(Material3SettingsItem(
-                    title = { Text("App Font") },
-                    description = {
-                        Column(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(top = 8.dp)) {
-                            SettingsButtonGroup(
-                                options = FontOption.entries.toList(),
-                                selectedOption = settingsStore.appFont,
-                                onOptionSelected = { settingsStore.appFont = it },
-                                labelProvider = {
-                                    when (it) {
-                                        FontOption.SYSTEM -> "System"
-                                        FontOption.INTER -> "Inter"
-                                        FontOption.MAPLE_MONO -> "Maple Mono"
-                                        FontOption.CUSTOM -> "Custom"
-                                    }
-                                }
-                            )
-
-                            if (settingsStore.appFont == FontOption.CUSTOM) {
-                                var showFontPicker by remember { mutableStateOf(false) }
-
-                                FilePicker(
-                                    show = showFontPicker,
-                                    onFileSelected = { files ->
-                                        files.firstOrNull()?.let { (name, bytes) ->
-                                            settingsStore.customFontPath = importCustomFont(name, bytes)
-                                            settingsStore.customFontName = name
-                                        }
-                                        showFontPicker = false
-                                    },
-                                    onDismiss = { showFontPicker = false }
-                                )
-
-                                Surface(
-                                    onClick = { showFontPicker = true },
-                                    modifier = Modifier.fillMaxWidth(),
-                                    shape = RoundedCornerShape(12.dp),
-                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(16.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                                    ) {
-                                        Icon(Icons.Rounded.FolderOpen, null, tint = MaterialTheme.colorScheme.primary)
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Text(
-                                                if (settingsStore.customFontPath.isEmpty()) {
-                                                    "Choose font file"
-                                                } else {
-                                                    settingsStore.customFontName.ifEmpty {
-                                                        settingsStore.customFontPath.split("/").last()
-                                                    }
-                                                },
-                                                style = MaterialTheme.typography.bodyLarge,
-                                                fontWeight = FontWeight.Bold
-                                            )
-                                            if (settingsStore.customFontPath.isNotEmpty()) {
-                                                Text(
-                                                    settingsStore.customFontPath,
-                                                    style = MaterialTheme.typography.bodySmall,
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                    maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis
-                                                )
-                                            }
-                                        }
-                                        if (settingsStore.customFontPath.isNotEmpty()) {
-                                            IconButton(onClick = {
-                                                settingsStore.customFontPath = ""
-                                                settingsStore.customFontName = ""
-                                            }) {
-                                                Icon(Icons.Rounded.Close, null)
-                                            }
-                                        }
-                                    }
-                                }
-                            }
+                add(selectSettingsItem(
+                    title = "App Font",
+                    options = FontOption.entries.toList(),
+                    selectedOption = settingsStore.appFont,
+                    onOptionSelected = { settingsStore.appFont = it },
+                    optionLabel = {
+                        when (it) {
+                            FontOption.SYSTEM -> "System"
+                            FontOption.INTER -> "Inter"
+                            FontOption.MAPLE_MONO -> "Maple Mono"
+                            FontOption.CUSTOM -> "Custom"
                         }
-                    }
+                    },
                 ))
+                if (settingsStore.appFont == FontOption.CUSTOM) {
+                    add(Material3SettingsItem(
+                        title = { Text("Custom Font File") },
+                        description = { CustomFontPicker(settingsStore) }
+                    ))
+                }
 
                 add(Material3SettingsItem(
                     title = { Text("Font Scale: ${(settingsStore.fontScale * 100).toInt()}%") },
@@ -405,7 +212,7 @@ fun AppearanceSettingsContent(
 }
 
 @Composable
-private fun AppearancePreview(settingsStore: SettingsStore) {
+internal fun AppearancePreview(settingsStore: SettingsStore) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -452,59 +259,199 @@ private fun AppearancePreview(settingsStore: SettingsStore) {
     }
 }
 
+@Composable
+private fun CustomFontPicker(settingsStore: SettingsStore) {
+    var showFontPicker by remember { mutableStateOf(false) }
+
+    FilePicker(
+        show = showFontPicker,
+        onFileSelected = { files ->
+            files.firstOrNull()?.let { (name, bytes) ->
+                settingsStore.customFontPath = importCustomFont(name, bytes)
+                settingsStore.customFontName = name
+            }
+            showFontPicker = false
+        },
+        onDismiss = { showFontPicker = false }
+    )
+
+    Surface(
+        onClick = { showFontPicker = true },
+        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Icon(Icons.Rounded.FolderOpen, null, tint = MaterialTheme.colorScheme.primary)
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    if (settingsStore.customFontPath.isEmpty()) {
+                        "Choose font file"
+                    } else {
+                        settingsStore.customFontName.ifEmpty {
+                            settingsStore.customFontPath.split("/").last()
+                        }
+                    },
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Bold
+                )
+                if (settingsStore.customFontPath.isNotEmpty()) {
+                    Text(
+                        settingsStore.customFontPath,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+            if (settingsStore.customFontPath.isNotEmpty()) {
+                IconButton(onClick = {
+                    settingsStore.customFontPath = ""
+                    settingsStore.customFontName = ""
+                }) {
+                    Icon(Icons.Rounded.Close, null)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+internal fun ColorPaletteSettings(settingsStore: SettingsStore) {
+    Material3SettingsGroup(
+        title = "Color palette",
+        items = listOf(
+            selectSettingsItem(
+                title = "Visual Style",
+                options = ThemePaletteStyle.entries.toList(),
+                selectedOption = settingsStore.themePaletteStyle,
+                onOptionSelected = { settingsStore.themePaletteStyle = it },
+                optionLabel = { it.name.lowercase().replace('_', ' ').replaceFirstChar { char -> char.uppercase() } },
+                optionIcon = { style: ThemePaletteStyle, isSelected ->
+                    val icon = when (style) {
+                        ThemePaletteStyle.TONAL_SPOT -> if (isSelected) Icons.Filled.Palette else Icons.Rounded.Palette
+                        ThemePaletteStyle.EXPRESSIVE -> if (isSelected) Icons.Filled.FormatPaint else Icons.Rounded.FormatPaint
+                        ThemePaletteStyle.VIBRANT -> if (isSelected) Icons.Filled.AutoAwesome else Icons.Rounded.AutoAwesome
+                        ThemePaletteStyle.RAINBOW -> if (isSelected) Icons.Filled.Texture else Icons.Rounded.Texture
+                        ThemePaletteStyle.MONOCHROME -> if (isSelected) Icons.Filled.Rectangle else Icons.Rounded.Rectangle
+                        ThemePaletteStyle.FRUIT_SALAD -> if (isSelected) Icons.Filled.Fastfood else Icons.Rounded.Fastfood
+                        else -> if (isSelected) Icons.Filled.Palette else Icons.Rounded.Palette
+                    }
+                    Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
+                },
+            ),
+            selectSettingsItem(
+                title = stringResource(Res.string.screenshare_source),
+                options = PaletteOption.entries,
+                selectedOption = if (settingsStore.materialYou) PaletteOption.DYNAMIC else PaletteOption.CUSTOM,
+                onOptionSelected = { option ->
+                    settingsStore.materialYou = option == PaletteOption.DYNAMIC
+                },
+                optionLabel = {
+                    when (it) {
+                        PaletteOption.DYNAMIC -> "Dynamic"
+                        PaletteOption.CUSTOM -> "Custom"
+                    }
+                },
+                optionIcon = { option, _ ->
+                    when (option) {
+                        PaletteOption.DYNAMIC -> Icon(
+                            Icons.Rounded.AutoAwesome,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        PaletteOption.CUSTOM -> EditableAccentSwatch(settingsStore)
+                    }
+                },
+            ),
+            Material3SettingsItem(
+                title = { Text("Accent Color") },
+                description = { ColorHexPicker(settingsStore) },
+            ),
+            switchSettingsItem(
+                title = "Sync across clients",
+                description = "Sync your theme selection across all Discord clients.",
+                checked = settingsStore.syncAppearance,
+                onCheckedChange = { settingsStore.syncAppearance = it }
+            )
+        )
+    )
+}
+
+@Composable
+internal fun ThemeModeControls(settingsStore: SettingsStore, updateTheme: (String) -> Unit) {
+    val selectedOption = when {
+        settingsStore.themeMode == ThemeMode.AUTO -> ThemeModeOption.AUTO
+        settingsStore.pureBlack -> ThemeModeOption.PURE_BLACK
+        settingsStore.themeMode == ThemeMode.LIGHT -> ThemeModeOption.LIGHT
+        else -> ThemeModeOption.DARK
+    }
+    Material3SettingsGroup(
+        title = "Theme Mode",
+        items = listOf(
+            selectSettingsItem(
+                title = "Theme Mode",
+                options = ThemeModeOption.entries.toList(),
+                selectedOption = selectedOption,
+                onOptionSelected = { option ->
+                    when (option) {
+                        ThemeModeOption.AUTO -> {
+                            settingsStore.themeMode = ThemeMode.AUTO
+                            settingsStore.pureBlack = false
+                        }
+                        ThemeModeOption.LIGHT -> {
+                            settingsStore.themeMode = ThemeMode.LIGHT
+                            settingsStore.pureBlack = false
+                        }
+                        ThemeModeOption.DARK -> {
+                            settingsStore.themeMode = ThemeMode.DARK
+                            settingsStore.pureBlack = false
+                        }
+                        ThemeModeOption.PURE_BLACK -> {
+                            settingsStore.themeMode = ThemeMode.DARK
+                            settingsStore.pureBlack = true
+                        }
+                    }
+                    if (settingsStore.syncAppearance) {
+                        updateTheme(
+                            SettingsStore.discordThemeRawValue(settingsStore.themeMode, settingsStore.pureBlack)
+                        )
+                    }
+                },
+                optionLabel = {
+                    when (it) {
+                        ThemeModeOption.AUTO -> "Auto"
+                        ThemeModeOption.LIGHT -> "Light"
+                        ThemeModeOption.DARK -> "Dark"
+                        ThemeModeOption.PURE_BLACK -> "Pure Black"
+                    }
+                },
+                optionIcon = { option, isSelected ->
+                    val icon = when (option) {
+                        ThemeModeOption.AUTO -> if (isSelected) Icons.Filled.Sync else Icons.Rounded.Sync
+                        ThemeModeOption.LIGHT -> if (isSelected) Icons.Filled.LightMode else Icons.Rounded.LightMode
+                        ThemeModeOption.DARK -> if (isSelected) Icons.Filled.DarkMode else Icons.Rounded.DarkMode
+                        ThemeModeOption.PURE_BLACK -> if (isSelected) Icons.Filled.Bedtime else Icons.Rounded.Bedtime
+                    }
+                    Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
+                },
+            )
+        )
+    )
+}
+
 @OptIn(ExperimentalEncodingApi::class)
 @Composable
-private fun ThemeControls(settingsStore: SettingsStore, updateTheme: (String) -> Unit) {
+internal fun WallpaperControls(settingsStore: SettingsStore) {
     Column(
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        SettingsButtonGroup(
-            options = listOf(ThemeMode.AUTO, null),
-            selectedOption = if (settingsStore.themeMode == ThemeMode.AUTO) ThemeMode.AUTO else if (settingsStore.pureBlack) null else ThemeMode.AUTO,
-            onOptionSelected = { mode: ThemeMode? ->
-                if (mode == null) {
-                    settingsStore.themeMode = ThemeMode.DARK
-                    settingsStore.pureBlack = true
-                } else {
-                    settingsStore.themeMode = mode
-                    settingsStore.pureBlack = false
-                }
-                // Pure Black maps to Discord's Onyx/Midnight client theme.
-                if (settingsStore.syncAppearance) {
-                    updateTheme(
-                        SettingsStore.discordThemeRawValue(settingsStore.themeMode, settingsStore.pureBlack)
-                    )
-                }
-            },
-            iconProvider = { mode, isSelected ->
-                when (mode) {
-                    ThemeMode.AUTO -> if (isSelected) Icons.Filled.Sync else Icons.Rounded.Sync
-                    null -> if (isSelected) Icons.Filled.Bedtime else Icons.Rounded.Bedtime
-                    else -> null
-                }
-            },
-            labelProvider = { mode: ThemeMode? -> if (mode == ThemeMode.AUTO) "Auto" else "Pure Black" }
-        )
-
-        SettingsLargeButtonGroup(
-            options = listOf(ThemeMode.LIGHT, ThemeMode.DARK),
-            selectedOption = if (settingsStore.themeMode == ThemeMode.LIGHT) ThemeMode.LIGHT else ThemeMode.DARK,
-            onOptionSelected = { mode: ThemeMode ->
-                settingsStore.themeMode = mode
-                settingsStore.pureBlack = false
-                if (settingsStore.syncAppearance) {
-                    updateTheme(SettingsStore.discordThemeRawValue(mode, pureBlack = false))
-                }
-            },
-            iconProvider = { mode: ThemeMode, isSelected -> 
-                when (mode) {
-                    ThemeMode.LIGHT -> if (isSelected) Icons.Filled.LightMode else Icons.Rounded.LightMode
-                    else -> if (isSelected) Icons.Filled.DarkMode else Icons.Rounded.DarkMode
-                }
-            },
-            labelProvider = { mode: ThemeMode -> if (mode == ThemeMode.LIGHT) "Light" else "Dark" }
-        )
-        
         var showBackgroundPicker by remember { mutableStateOf(false) }
         
         FilePicker(
@@ -554,9 +501,91 @@ private fun ThemeControls(settingsStore: SettingsStore, updateTheme: (String) ->
 }
 
 @Composable
+private fun accentColorValue(settingsStore: SettingsStore): Color =
+    remember(settingsStore.accentColor) {
+        try {
+            Color(settingsStore.accentColor.removePrefix("#").toLong(16) or 0xFF000000)
+        } catch (_: Exception) {
+            Color(0xFF6750A4)
+        }
+    }
+
+@Composable
+private fun AccentColorPickerPopup(
+    show: Boolean,
+    settingsStore: SettingsStore,
+    onDismiss: () -> Unit,
+    offset: IntOffset,
+) {
+    if (!show) return
+
+    Popup(
+        alignment = Alignment.TopStart,
+        onDismissRequest = onDismiss,
+        offset = offset
+    ) {
+        HsvColorPicker(
+            initialColor = accentColorValue(settingsStore),
+            onColorSelected = {
+                val r = (it.red * 255).toInt().toString(16).padStart(2, '0')
+                val g = (it.green * 255).toInt().toString(16).padStart(2, '0')
+                val b = (it.blue * 255).toInt().toString(16).padStart(2, '0')
+                settingsStore.accentColor = "#$r$g$b"
+                settingsStore.materialYou = false
+                onDismiss()
+            },
+            onDismiss = onDismiss
+        )
+    }
+}
+
+@Composable
+private fun EditableAccentSwatch(settingsStore: SettingsStore) {
+    var showPicker by remember { mutableStateOf(false) }
+
+    Box(
+        modifier = Modifier
+            .size(24.dp)
+            .clickableCursor { showPicker = true },
+        contentAlignment = Alignment.Center
+    ) {
+        Box(
+            modifier = Modifier
+                .size(18.dp)
+                .clip(RoundedCornerShape(4.dp))
+                .background(accentColorValue(settingsStore))
+                .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
+        )
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .size(14.dp)
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.surface)
+                .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f), CircleShape),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                Icons.Rounded.Edit,
+                contentDescription = "Edit accent color",
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(10.dp)
+            )
+        }
+    }
+
+    AccentColorPickerPopup(
+        show = showPicker,
+        settingsStore = settingsStore,
+        onDismiss = { showPicker = false },
+        offset = IntOffset(0, 28)
+    )
+}
+
+@Composable
 private fun ColorHexPicker(settingsStore: SettingsStore) {
     var showPicker by remember { mutableStateOf(false) }
-    
+
     Surface(
         modifier = Modifier.fillMaxWidth().height(44.dp),
         shape = CircleShape,
@@ -576,43 +605,22 @@ private fun ColorHexPicker(settingsStore: SettingsStore) {
                     fontFamily = FontFamily.Monospace
                 )
             )
-            
+
             Spacer(Modifier.weight(1f))
-            
+
             Text(
-                "Pick color", 
-                style = MaterialTheme.typography.labelMedium, 
+                "Pick color",
+                style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontWeight = FontWeight.Bold
             )
         }
     }
 
-    if (showPicker) {
-        Popup(
-            alignment = Alignment.TopStart,
-            onDismissRequest = { showPicker = false },
-            offset = IntOffset(0, 52)
-        ) {
-            val currentAccent = remember(settingsStore.accentColor) {
-                try {
-                    Color(settingsStore.accentColor.removePrefix("#").toLong(16) or 0xFF000000)
-                } catch (_: Exception) {
-                    Color(0xFF6750A4)
-                }
-            }
-            HsvColorPicker(
-                initialColor = currentAccent,
-                onColorSelected = {
-                    val r = (it.red * 255).toInt().toString(16).padStart(2, '0')
-                    val g = (it.green * 255).toInt().toString(16).padStart(2, '0')
-                    val b = (it.blue * 255).toInt().toString(16).padStart(2, '0')
-                    settingsStore.accentColor = "#$r$g$b"
-                    settingsStore.materialYou = false
-                    showPicker = false
-                },
-                onDismiss = { showPicker = false }
-            )
-        }
-    }
+    AccentColorPickerPopup(
+        show = showPicker,
+        settingsStore = settingsStore,
+        onDismiss = { showPicker = false },
+        offset = IntOffset(0, 52)
+    )
 }

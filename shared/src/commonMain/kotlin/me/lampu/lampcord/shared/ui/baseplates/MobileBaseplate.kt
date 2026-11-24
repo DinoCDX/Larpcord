@@ -22,6 +22,7 @@ import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
@@ -51,6 +52,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import me.lampu.lampcord.shared.state.*
 import me.lampu.lampcord.shared.ui.SettingsScreen
+import me.lampu.lampcord.shared.ui.animation.PhoenixPageTransitions
 import me.lampu.lampcord.shared.ui.AboutContent
 import me.lampu.lampcord.shared.ui.settings.*
 import me.lampu.lampcord.shared.ui.components.settings.SettingsSubScreen
@@ -60,6 +62,15 @@ import me.lampu.lampcord.shared.ui.components.GlobalSnackbarHost
 import me.lampu.lampcord.shared.ui.components.chat.ChannelSettingsScreen
 import me.lampu.lampcord.shared.ui.components.chat.PinnedMessagesScreen
 import me.lampu.lampcord.shared.ui.components.chat.SearchScreen
+import me.lampu.lampcord.shared.ui.components.sheet.CustomKeyboardGeometry
+import me.lampu.lampcord.shared.ui.components.sheet.CustomKeyboardPortal
+import me.lampu.lampcord.shared.ui.components.sheet.DraggableKeyboardSheet
+import me.lampu.lampcord.shared.ui.components.sheet.KeyboardSheetPolicy
+import me.lampu.lampcord.shared.ui.components.sheet.LocalCustomKeyboardGeometry
+import me.lampu.lampcord.shared.ui.components.sheet.LocalCustomKeyboardPortal
+import me.lampu.lampcord.shared.ui.components.sheet.LocalCustomKeyboardSheetState
+import me.lampu.lampcord.shared.ui.components.sheet.rememberKeyboardSheetDetents
+import me.lampu.lampcord.shared.ui.components.sheet.rememberKeyboardSheetState
 import me.lampu.lampcord.shared.ui.components.guilds.ServerBottomSheet
 import me.lampu.lampcord.shared.ui.components.guilds.ServerSettings
 import me.lampu.lampcord.shared.ui.components.members.MemberHeader
@@ -95,6 +106,41 @@ import androidx.compose.ui.text.style.TextAlign
 
 private data class BottomNavItem(val key: String, val screen: Screen)
 
+private fun navRouteName(contentKey: Any): String = contentKey.toString().substringBefore("(")
+
+private fun modalRank(name: String): Int =
+    when (name) {
+        Screen.You.toString() -> 1
+        Screen.Settings.toString() -> 2
+        else -> 0
+    }
+
+private fun settingsRank(name: String): Int =
+    when (name) {
+        Screen.Settings.toString() -> 0
+        Screen.AccountSettings.toString() -> 10
+        Screen.ProfilesSettings.toString() -> 20
+        Screen.PrivacySettings.toString() -> 30
+        Screen.ConnectionsSettings.toString() -> 40
+        Screen.DevicesSettings.toString() -> 50
+        Screen.AppearanceSettings.toString() -> 60
+        Screen.AccessibilitySettings.toString() -> 70
+        Screen.LanguageSettings.toString() -> 80
+        Screen.VoiceSettings.toString() -> 90
+        Screen.ChatSettings.toString() -> 100
+        Screen.NotificationsSettings.toString() -> 110
+        Screen.NavigationSettings.toString() -> 115
+        Screen.AdvancedSettings.toString() -> 120
+        Screen.AdditionalSettings.toString() -> 130
+        Screen.UpdatesSettings.toString() -> 140
+        Screen.AboutSettings.toString() -> 150
+        Screen.Theme.toString() -> 160
+        "ThemeEditor" -> 170
+        else -> -1
+    }
+
+private fun isSettingsRoute(name: String): Boolean = settingsRank(name) >= 0
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class, ExperimentalFoundationApi::class)
 @Composable
 fun MobileBaseplate(
@@ -103,6 +149,73 @@ fun MobileBaseplate(
     userStore: UserStore = koinInject(),
     voiceStore: VoiceStore = koinInject(),
     onExitApp: () -> Unit = {}
+) {
+    val sheetState = rememberKeyboardSheetState()
+    val sheetProgress by sheetState.progress
+    val portal = remember { CustomKeyboardPortal() }
+    val (minimum, maximum) = rememberKeyboardSheetDetents(navigationStore.isChatInputFocused)
+    val geometry = remember(minimum, maximum) { CustomKeyboardGeometry(minimum, maximum) }
+
+    CompositionLocalProvider(
+        LocalCustomKeyboardSheetState provides sheetState,
+        LocalCustomKeyboardPortal provides portal,
+        LocalCustomKeyboardGeometry provides geometry
+    ) {
+        MobileBaseplateContentRoot(
+            navigationStore = navigationStore,
+            profileStore = profileStore,
+            userStore = userStore,
+            voiceStore = voiceStore,
+            onExitApp = onExitApp,
+            onChatPanelSwipedAway = {
+                sheetState.collapse()
+                navigationStore.closeCustomKeyboardPicker()
+            }
+        )
+
+        if (navigationStore.isCustomKeyboardPickerVisible) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.BottomCenter
+            ) {
+                if (sheetProgress > 0.01f) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(
+                                MaterialTheme.colorScheme.scrim.copy(
+                                    alpha = KeyboardSheetPolicy.backdropAlpha(sheetProgress)
+                                )
+                            )
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null
+                            ) { sheetState.collapse() }
+                    )
+                }
+                DraggableKeyboardSheet(
+                    modifier = Modifier.align(Alignment.BottomCenter),
+                    state = sheetState,
+                    peekHeight = geometry.minimum,
+                    expandedHeight = geometry.maximum,
+                    onBackdropClick = { sheetState.collapse() }
+                ) { expanded ->
+                    portal.content?.invoke(expanded)
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class, ExperimentalFoundationApi::class)
+@Composable
+private fun MobileBaseplateContentRoot(
+    navigationStore: NavigationStore,
+    profileStore: ProfileStore,
+    userStore: UserStore,
+    voiceStore: VoiceStore,
+    onExitApp: () -> Unit,
+    onChatPanelSwipedAway: () -> Unit
 ) {
     val presenceStore: PresenceStore = koinInject()
     val settingsStore: SettingsStore = koinInject()
@@ -152,7 +265,17 @@ fun MobileBaseplate(
             }
         }
         navigationStore.isSettingsVisible = false
-        navigator.navigate(settingsReturnRoute)
+        if (!navigator.goBackTo(settingsReturnRoute)) {
+            navigator.goBack()
+        }
+    }
+
+    fun onSettingsBack() {
+        if (navigator.canGoBackInStack) {
+            navigator.goBack()
+        } else {
+            closeSettings()
+        }
     }
 
     val panelState = rememberDiscordPanelsState()
@@ -160,22 +283,22 @@ fun MobileBaseplate(
     val keyboardController = LocalSoftwareKeyboardController.current
 
     val routeIndexMap = remember {
-        mapOf<Any, Int>(
-            Screen.Chat to 0,
-            Screen.You to 1,
-            Screen.Friends to 1,
-            Screen.GlobalSearch to 2,
-            Screen.Mentions to 3,
-            Screen.Settings to 4,
-            Screen.Search to 5,
-            Screen.Pins to 6,
-            Screen.Threads::class to 7,
-            Screen.ChannelsAndRoles to 8,
-            Screen.ServerSettings to 9,
-            Screen.ChannelSettings to 10,
-            Screen.Theming to 11,
-            Screen.ThemeEditor::class to 12,
-            Screen.VoiceSettings to 12,
+        mapOf(
+            Screen.Chat.toString() to 0,
+            Screen.You.toString() to 1,
+            Screen.Friends.toString() to 1,
+            Screen.GlobalSearch.toString() to 2,
+            Screen.Mentions.toString() to 3,
+            Screen.Settings.toString() to 4,
+            Screen.Search.toString() to 5,
+            Screen.Pins.toString() to 6,
+            "Threads" to 7,
+            Screen.ChannelsAndRoles.toString() to 8,
+            Screen.ServerSettings.toString() to 9,
+            Screen.ChannelSettings.toString() to 10,
+            Screen.Theme.toString() to 11,
+            "ThemeEditor" to 12,
+            Screen.VoiceSettings.toString() to 12,
         )
     }
     val quickSpatialSpec = MaterialTheme.motionScheme.defaultSpatialSpec<IntOffset>()
@@ -278,8 +401,13 @@ fun MobileBaseplate(
         if (navigationState.topLevelRoute == Screen.Chat) {
             lastPanelValue = panelState.currentValue
         }
-        if (panelState.currentValue != DiscordPanelValue.Center) {
+        val chatPanelSwipedAway = navigationState.topLevelRoute != Screen.Chat ||
+            panelState.currentValue != DiscordPanelValue.Center
+        if (chatPanelSwipedAway) {
             keyboardController?.hide()
+            if (navigationStore.isCustomKeyboardPickerVisible) {
+                onChatPanelSwipedAway()
+            }
         }
     }
 
@@ -295,6 +423,8 @@ fun MobileBaseplate(
         currentRoute == Screen.AccountSettings ||
         currentRoute == Screen.ProfilesSettings ||
         currentRoute == Screen.AppearanceSettings ||
+        currentRoute == Screen.Theme ||
+        currentRoute == Screen.ThemeEditor ||
         currentRoute == Screen.AccessibilitySettings ||
         currentRoute == Screen.LanguageSettings ||
         currentRoute == Screen.PrivacySettings ||
@@ -475,7 +605,7 @@ fun MobileBaseplate(
                         onNavigateToAdditional = { navigator.navigate(Screen.AdditionalSettings) },
                         onNavigateToAbout = { navigator.navigate(Screen.AboutSettings) },
                         onNavigateToUpdates = { navigator.navigate(Screen.UpdatesSettings) },
-                        onNavigateToTheming = { navigator.navigate(Screen.Theming) },
+                        onNavigateToTheming = { navigator.navigate(Screen.Theme) },
                         onNavigateToNavigation = { navigator.navigate(Screen.NavigationSettings) },
                         onDismiss = ::closeSettings
                     )
@@ -483,56 +613,56 @@ fun MobileBaseplate(
             }
             entry<Screen.AccountSettings> {
                 val userStoreForAccount: UserStore = koinInject()
-                AccountSettings(onBack = { navigator.goBack() }, userStore = userStoreForAccount)
+                AccountSettings(onBack = ::onSettingsBack, userStore = userStoreForAccount)
             }
             entry<Screen.ProfilesSettings> {
                 val userStoreForProfiles: UserStore = koinInject()
-                ProfilesSettings(onBack = { navigator.goBack() }, userStore = userStoreForProfiles)
+                ProfilesSettings(onBack = ::onSettingsBack, userStore = userStoreForProfiles)
             }
             entry<Screen.AppearanceSettings> {
-                AppearanceSettings(onNavigateToTheming = { navigator.navigate(Screen.Theming) }, onNavigateToNavigation = { navigator.navigate(Screen.NavigationSettings) }, onBack = { navigator.goBack() })
+                AppearanceSettings(onNavigateToTheming = { navigator.navigate(Screen.Theme) }, onNavigateToNavigation = { navigator.navigate(Screen.NavigationSettings) }, onBack = ::onSettingsBack)
             }
             entry<Screen.AccessibilitySettings> {
-                AccessibilitySettings(onBack = { navigator.goBack() })
+                AccessibilitySettings(onBack = ::onSettingsBack)
             }
             entry<Screen.LanguageSettings> {
-                me.lampu.lampcord.shared.ui.settings.LanguageSettings(onBack = { navigator.goBack() })
+                me.lampu.lampcord.shared.ui.settings.LanguageSettings(onBack = ::onSettingsBack)
             }
             entry<Screen.PrivacySettings> {
-                PrivacySettings(onBack = { navigator.goBack() })
+                PrivacySettings(onBack = ::onSettingsBack)
             }
             entry<Screen.ConnectionsSettings> {
-                ConnectionsSettings(onBack = { navigator.goBack() })
+                ConnectionsSettings(onBack = ::onSettingsBack)
             }
             entry<Screen.DevicesSettings> {
-                DevicesSettings(onBack = { navigator.goBack() })
+                DevicesSettings(onBack = ::onSettingsBack)
             }
             entry<Screen.VoiceSettings> {
-                me.lampu.lampcord.shared.ui.settings.VoiceSettings(onBack = { navigator.goBack() })
+                me.lampu.lampcord.shared.ui.settings.VoiceSettings(onBack = ::onSettingsBack)
             }
             entry<Screen.ChatSettings> {
-                ChatSettings(onBack = { navigator.goBack() })
+                ChatSettings(onBack = ::onSettingsBack)
             }
             entry<Screen.NotificationsSettings> {
-                NotificationsSettings(onBack = { navigator.goBack() })
+                NotificationsSettings(onBack = ::onSettingsBack)
             }
             entry<Screen.NavigationSettings> {
-                NavigationSettings(onBack = { navigator.goBack() })
+                NavigationSettings(onBack = ::onSettingsBack)
             }
             entry<Screen.AdvancedSettings> {
-                AdvancedSettings(onBack = { navigator.goBack() })
+                AdvancedSettings(onBack = ::onSettingsBack)
             }
             entry<Screen.AdditionalSettings> {
-                AdditionalSettings(onBack = { navigator.goBack() })
+                AdditionalSettings(onBack = ::onSettingsBack)
             }
             entry<Screen.UpdatesSettings> {
-                SettingsSubScreen(title = "Updates", onNavigateBack = { navigator.goBack() }) {
+                SettingsSubScreen(title = "Updates", onNavigateBack = ::onSettingsBack) {
                     me.lampu.lampcord.shared.ui.settings.UpdatesContent()
                 }
             }
             entry<Screen.AboutSettings> {
                 val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
-                SettingsSubScreen(title = "About", onNavigateBack = { navigator.goBack() }) {
+                SettingsSubScreen(title = "About", onNavigateBack = ::onSettingsBack) {
                     AboutContent(version = me.lampu.lampcord.shared.update.APP_VERSION, onOpenUrl = { uriHandler.openUri(it) })
                 }
             }
@@ -544,7 +674,6 @@ fun MobileBaseplate(
                         Spacer(Modifier.height(24.dp))
                         Button(onClick = {
                             navigationStore.isSettingsVisible = true
-                            navigator.navigate(Screen.Settings)
                         }) {
                             Text(stringResource(Res.string.password_manager_open_settings))
                         }
@@ -597,14 +726,12 @@ fun MobileBaseplate(
                     }
                 }
             }
-            entry<Screen.Theming> {
-                Box(Modifier.fillMaxSize().padding(bottom = navBarHeight)) {
-                    ThemingSettings(onNavigateToEditor = { navigator.navigate(Screen.ThemeEditor(it)) }, onBack = { navigator.goBack() })
-                }
+            entry<Screen.Theme> {
+                ThemeSettings(onNavigateToEditor = { navigator.navigate(Screen.ThemeEditor(it)) }, onBack = ::onSettingsBack)
             }
             entry<Screen.ThemeEditor> { screen: Screen.ThemeEditor ->
                 Box(Modifier.fillMaxSize()) {
-                    ThemeEditorScreen(themeJson = screen.themeJson, onBack = { navigator.goBack() })
+                    ThemeEditorScreen(themeJson = screen.themeJson, onBack = ::onSettingsBack)
                 }
             }
         }
@@ -653,6 +780,7 @@ fun MobileBaseplate(
                 .statusBarsPadding(),
             swipeToStartEnabled = isChat && !navigationStore.isBubble,
             swipeToEndEnabled = isChat && !navigationStore.isBubble && !Settings.shared.swipeToReplyEnabled,
+            onPanelDragStart = onChatPanelSwipedAway,
             startPanel = {
                 if (isChat) {
                     val currentBottomPadding = (navBarHeight * navBarVisibleAmount).coerceAtLeast(0.dp)
@@ -677,34 +805,63 @@ fun MobileBaseplate(
                         AnimatedContent(
                             targetState = currentEntry,
                             transitionSpec = {
-                                if (me.lampu.lampcord.shared.settings.Settings.shared.reduceMotion) {
+                                if (Settings.shared.reduceMotion) {
                                     EnterTransition.None togetherWith ExitTransition.None
                                 } else {
-                                    val targetKey = targetState.contentKey
-                                    val initialKey = initialState.contentKey
-
-                                    val targetIndex = routeIndexMap[targetKey] ?: routeIndexMap[targetKey::class] ?: -1
-                                    val initialIndex = routeIndexMap[initialKey] ?: routeIndexMap[initialKey::class] ?: -1
-
-                                    val enterTransition =
-                                        if (targetIndex == -1 || targetIndex > initialIndex) {
-                                            slideInHorizontally(animationSpec = quickSpatialSpec) { it / 8 } +
-                                                fadeIn(quickEffectsSpec)
-                                        } else {
-                                            slideInHorizontally(animationSpec = quickSpatialSpec) { -it / 8 } +
-                                                fadeIn(quickEffectsSpec)
+                                    val targetName = navRouteName(targetState.contentKey)
+                                    val initialName = navRouteName(initialState.contentKey)
+                                    val targetRank = modalRank(targetName)
+                                    val initialRank = modalRank(initialName)
+                                    when {
+                                        isSettingsRoute(targetName) && isSettingsRoute(initialName) -> {
+                                            val forward = settingsRank(targetName) >= settingsRank(initialName)
+                                            if (forward) {
+                                                PhoenixPageTransitions.pushEnter() togetherWith
+                                                    PhoenixPageTransitions.pushExit()
+                                            } else {
+                                                PhoenixPageTransitions.popEnter() togetherWith
+                                                    PhoenixPageTransitions.popExit()
+                                            }
                                         }
-
-                                    val exitTransition =
-                                        if (targetIndex == -1 || targetIndex > initialIndex) {
-                                            slideOutHorizontally(animationSpec = quickSpatialSpec) { -it / 8 } +
-                                                fadeOut(quickEffectsSpec)
-                                        } else {
-                                            slideOutHorizontally(animationSpec = quickSpatialSpec) { it / 8 } +
-                                                fadeOut(quickEffectsSpec)
+                                        targetRank > initialRank && !isSettingsRoute(initialName) -> {
+                                            PhoenixPageTransitions.bringUpEnter() togetherWith
+                                                PhoenixPageTransitions.bringUpExit()
                                         }
-
-                                    enterTransition togetherWith exitTransition
+                                        initialRank > targetRank && !isSettingsRoute(targetName) -> {
+                                            PhoenixPageTransitions.bringDownEnter() togetherWith
+                                                PhoenixPageTransitions.bringDownExit()
+                                        }
+                                        isSettingsRoute(targetName) -> {
+                                            PhoenixPageTransitions.bringUpEnter() togetherWith
+                                                PhoenixPageTransitions.bringUpExit()
+                                        }
+                                        isSettingsRoute(initialName) -> {
+                                            PhoenixPageTransitions.bringDownEnter() togetherWith
+                                                PhoenixPageTransitions.bringDownExit()
+                                        }
+                                        else -> {
+                                            val targetIndex = routeIndexMap[targetName] ?: -1
+                                            val initialIndex = routeIndexMap[initialName] ?: -1
+                                            val forward = targetIndex == -1 || targetIndex >= initialIndex
+                                            val enter =
+                                                if (forward) {
+                                                    slideInHorizontally(animationSpec = quickSpatialSpec) { it / 8 } +
+                                                        fadeIn(quickEffectsSpec)
+                                                } else {
+                                                    slideInHorizontally(animationSpec = quickSpatialSpec) { -it / 8 } +
+                                                        fadeIn(quickEffectsSpec)
+                                                }
+                                            val exit =
+                                                if (forward) {
+                                                    slideOutHorizontally(animationSpec = quickSpatialSpec) { -it / 8 } +
+                                                        fadeOut(quickEffectsSpec)
+                                                } else {
+                                                    slideOutHorizontally(animationSpec = quickSpatialSpec) { it / 8 } +
+                                                        fadeOut(quickEffectsSpec)
+                                                }
+                                            enter togetherWith exit
+                                        }
+                                    }
                                 }
                             },
                             contentKey = { it.contentKey },
@@ -1286,7 +1443,7 @@ fun MobileBaseplate(
                         true
                     }
                     navigationStore.isSettingsVisible -> {
-                        closeSettings()
+                        onSettingsBack()
                         true
                     }
                     panelState.currentValue == DiscordPanelValue.End -> {
@@ -1768,21 +1925,31 @@ private fun MainBaseplateContent(
                             if (isVoice && !voiceStore.isVoiceChatTextVisible) {
                                 VoiceArea(activeChannel)
                             } else {
+                                val density = LocalDensity.current
+                                var composerHeightPx by remember { mutableStateOf(0) }
+                                val composerBottomPadding = with(density) { composerHeightPx.toDp() }
                                 Column(
                                     modifier = Modifier
                                         .fillMaxSize()
                                 ) {
                                     DmCallStage(activeChannel)
                                     Box(modifier = Modifier.weight(1f)) {
-                                            if (activeChannel.type == 15 && navigationStore.selectedThread == null) {
-                                                ForumPostList()
-                                            } else {
-                                                ChatArea(modifier = Modifier.fillMaxSize())
-                                            }
+                                        if (activeChannel.type == 15 && navigationStore.selectedThread == null) {
+                                            ForumPostList()
+                                        } else {
+                                            ChatArea(
+                                                modifier = Modifier.fillMaxSize(),
+                                                bottomContentPadding = composerBottomPadding + 10.dp
+                                            )
                                         }
                                         if (!(activeChannel.type == 15 && navigationStore.selectedThread == null)) {
-                                            ChatInputBar(activeChannel)
+                                            ChatInputBar(
+                                                channel = activeChannel,
+                                                modifier = Modifier.align(Alignment.BottomCenter),
+                                                onHeightChanged = { height -> composerHeightPx = height }
+                                            )
                                         }
+                                    }
                                 }
                             }
                         } else if (target == "roles") {

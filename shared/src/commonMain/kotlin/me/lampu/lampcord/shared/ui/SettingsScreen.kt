@@ -18,9 +18,6 @@ import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
@@ -74,15 +71,16 @@ import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import me.lampu.lampcord.shared.state.NavigationStore
 import me.lampu.lampcord.shared.state.SessionManager
 import me.lampu.lampcord.shared.state.UserStore
 import me.lampu.lampcord.shared.settings.Settings
+import me.lampu.lampcord.shared.ui.animation.PhoenixPageTransitions
 import me.lampu.lampcord.shared.ui.components.settings.Material3SettingsGroup
 import me.lampu.lampcord.shared.ui.components.settings.Material3SettingsItem
+import me.lampu.lampcord.shared.ui.components.settings.connectedSettingsShape
 import me.lampu.lampcord.shared.ui.components.settings.SettingsSearchDestination
 import me.lampu.lampcord.shared.ui.components.settings.SettingsSearchEntry
 import me.lampu.lampcord.shared.ui.components.settings.SettingsOverlayFrame
@@ -102,7 +100,7 @@ import me.lampu.lampcord.shared.ui.settings.NotificationsSettingsContent
 import me.lampu.lampcord.shared.ui.settings.PrivacySettingsContent
 import me.lampu.lampcord.shared.ui.settings.ProfileSettingsContent
 import me.lampu.lampcord.shared.ui.settings.ThemeEditorScreen
-import me.lampu.lampcord.shared.ui.settings.ThemingSettingsContent
+import me.lampu.lampcord.shared.ui.settings.ThemeSettingsContent
 import me.lampu.lampcord.shared.ui.settings.UpdatesContent
 import me.lampu.lampcord.shared.ui.settings.VoiceSettingsContent
 import me.lampu.lampcord.shared.ui.settings.DebugLogScreen
@@ -137,6 +135,13 @@ enum class SettingsSection(val title: String, val icon: ImageVector, val selecte
     ABOUT("About", Icons.Rounded.Info, Icons.Filled.Info),
 }
 
+private fun settingsPageRank(page: String): Int =
+    when (page) {
+        "editor" -> 100
+        "theme", "logs" -> 50
+        else -> SettingsSection.entries.firstOrNull { it.name == page }?.ordinal ?: 0
+    }
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun SettingsScreen(
@@ -165,7 +170,6 @@ fun SettingsScreen(
     val reduceMotion = Settings.shared.reduceMotion
 
     var selectedCategory by remember { mutableStateOf<SettingsSection?>(null) }
-
     var showThemer by remember { mutableStateOf(false) }
     var editingThemeJson by remember { mutableStateOf<String?>(null) }
     var searchQuery by rememberSaveable { mutableStateOf("") }
@@ -338,24 +342,19 @@ fun SettingsScreen(
         }
 
         if (isCompact) {
-            val quickSpatialSpec = MaterialTheme.motionScheme.defaultSpatialSpec<IntOffset>()
-            val quickEffectsSpec = MaterialTheme.motionScheme.defaultEffectsSpec<Float>()
-
             AnimatedContent(
                 targetState = showDebugLogs,
                 modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface),
                 transitionSpec = {
-                    if (reduceMotion) {
-                        EnterTransition.None togetherWith ExitTransition.None
-                    } else if (targetState) {
-                        (fadeIn(quickEffectsSpec) + slideInHorizontally(quickSpatialSpec) { it / 8 }).togetherWith(
-                            fadeOut(quickEffectsSpec) + slideOutHorizontally(quickSpatialSpec) { -it / 8 }
-                        )
-                    } else {
-                        (fadeIn(quickEffectsSpec) + slideInHorizontally(quickSpatialSpec) { -it / 8 }).togetherWith(
-                            fadeOut(quickEffectsSpec) + slideOutHorizontally(quickSpatialSpec) { it / 8 }
-                        )
-                    }.using(SizeTransform(clip = false) { _, _ -> tween(0) })
+                    val transition =
+                        if (reduceMotion) {
+                            EnterTransition.None togetherWith ExitTransition.None
+                        } else if (targetState) {
+                            PhoenixPageTransitions.pushEnter() togetherWith PhoenixPageTransitions.pushExit()
+                        } else {
+                            PhoenixPageTransitions.popEnter() togetherWith PhoenixPageTransitions.popExit()
+                        }
+                    transition.using(SizeTransform(clip = false) { _, _ -> tween(0) })
                 },
                 label = "SettingsTransition"
             ) { showLogs ->
@@ -445,33 +444,28 @@ fun SettingsScreen(
                                             Material3SettingsItem(
                                                 if (useRounded) Icons.Rounded.AccountCircle else Icons.Filled.AccountCircle,
                                                 title = { Text(stringResource(Res.string.account)) },
-                                                description = { Text("Manage your account details and security") },
                                                 onClick = onNavigateToAccount
-                                            ),
-                                            Material3SettingsItem(
-                                                if (useRounded) Icons.Rounded.Person else Icons.Filled.Person,
-                                                title = { Text("Profiles") },
-                                                description = { Text("Customize your appearance across servers") },
-                                                onClick = onNavigateToProfiles
                                             ),
                                             Material3SettingsItem(
                                                 if (useRounded) Icons.Rounded.Security else Icons.Filled.Security,
                                                 title = { Text(stringResource(Res.string.privacy_and_safety)) },
-                                                description = { Text("Manage who can contact you and what you see") },
                                                 onClick = onNavigateToPrivacy
                                             ),
                                             Material3SettingsItem(
-                                                if (useRounded) Icons.Rounded.Link else Icons.Filled.Link,
-                                                title = { Text(stringResource(Res.string.connections)) },
-                                                description = { Text("Connect your accounts from other platforms") },
-                                                onClick = onNavigateToConnections
+                                                if (useRounded) Icons.Rounded.Person else Icons.Filled.Person,
+                                                title = { Text("Profiles") },
+                                                onClick = onNavigateToProfiles
                                             ),
                                             Material3SettingsItem(
                                                 if (useRounded) Icons.Rounded.Tv else Icons.Filled.Tv,
                                                 title = { Text("Devices") },
-                                                description = { Text("Manage your active sessions") },
                                                 onClick = onNavigateToDevices
-                                            )
+                                            ),
+                                            Material3SettingsItem(
+                                                if (useRounded) Icons.Rounded.Link else Icons.Filled.Link,
+                                                title = { Text(stringResource(Res.string.connections)) },
+                                                onClick = onNavigateToConnections
+                                            ),
                                         )
                                     )
                                 }
@@ -481,51 +475,43 @@ fun SettingsScreen(
                                         title = stringResource(Res.string.app_settings),
                                         items = listOf(
                                             Material3SettingsItem(
+                                                if (useRounded) Icons.Rounded.Mic else Icons.Filled.Mic,
+                                                title = { Text(stringResource(Res.string.voice_and_video)) },
+                                                onClick = onNavigateToVoice
+                                            ),
+                                            Material3SettingsItem(
                                                 if (useRounded) Icons.Rounded.Palette else Icons.Filled.Palette,
                                                 title = { Text(stringResource(Res.string.appearance)) },
-                                                description = { Text("Theme, colors, and message display") },
                                                 onClick = onNavigateToAppearance
                                             ),
                                             Material3SettingsItem(
                                                 if (useRounded) Icons.Rounded.Accessibility else Icons.Filled.Accessibility,
                                                 title = { Text(stringResource(Res.string.accessibility)) },
-                                                description = { Text("Visual and interactive adjustments") },
                                                 onClick = onNavigateToAccessibility
                                             ),
                                             Material3SettingsItem(
                                                 if (useRounded) Icons.Rounded.Language else Icons.Filled.Language,
                                                 title = { Text(stringResource(Res.string.language)) },
-                                                description = { Text(stringResource(Res.string.lampcord_language_description)) },
                                                 onClick = onNavigateToLanguage
-                                            ),
-                                            Material3SettingsItem(
-                                                if (useRounded) Icons.Rounded.Mic else Icons.Filled.Mic,
-                                                title = { Text(stringResource(Res.string.voice_and_video)) },
-                                                description = { Text("Input, output, and camera settings") },
-                                                onClick = onNavigateToVoice
                                             ),
                                             Material3SettingsItem(
                                                 if (useRounded) Icons.Rounded.Forum else Icons.Filled.Forum,
                                                 title = { Text(stringResource(Res.string.guild_template_name_category_chat)) },
-                                                description = { Text("Control how you interact with chat and media") },
                                                 onClick = onNavigateToChat
                                             ),
                                             Material3SettingsItem(
                                                 if (useRounded) Icons.Rounded.Notifications else Icons.Filled.Notifications,
                                                 title = { Text(stringResource(Res.string.notifications)) },
-                                                description = { Text("Control how you're notified") },
                                                 onClick = onNavigateToNotifications
                                             ),
                                             Material3SettingsItem(
                                                 if (useRounded) Icons.Rounded.Tune else Icons.Filled.Tune,
                                                 title = { Text(stringResource(Res.string.lampcord_settings_advanced)) },
-                                                description = { Text("Developer settings and experimental features") },
                                                 onClick = onNavigateToAdvanced
                                             ),
                                             Material3SettingsItem(
                                                 if (useRounded) Icons.Rounded.AutoAwesome else Icons.Filled.AutoAwesome,
                                                 title = { Text("Additional") },
-                                                description = { Text("Profile enhancements, emoji tweaks, logger and text replacement") },
                                                 onClick = onNavigateToAdditional
                                             )
                                         )
@@ -534,17 +520,29 @@ fun SettingsScreen(
 
                                 item {
                                     Material3SettingsGroup(
+                                        title = "Support",
+                                        items = listOf(
+                                            Material3SettingsItem(
+                                                if (useRounded) Icons.Rounded.Info else Icons.Filled.Info,
+                                                title = { Text("Upload Debug Logs") },
+                                                onClick = { showDebugLogs = true }
+                                            ),
+                                        )
+                                    )
+                                }
+
+                                item {
+                                    Material3SettingsGroup(
+                                        title = "What's New",
                                         items = listOf(
                                             Material3SettingsItem(
                                                 if (useRounded) Icons.Rounded.Refresh else Icons.Filled.Refresh,
                                                 title = { Text("Updates") },
-                                                description = { Text("Check for updates and read the changelog") },
                                                 onClick = onNavigateToUpdates
                                             ),
                                             Material3SettingsItem(
                                                 if (useRounded) Icons.Rounded.Info else Icons.Filled.Info,
                                                 title = { Text("About") },
-                                                description = { Text("App information and credits") },
                                                 onClick = onNavigateToAbout
                                             )
                                         )
@@ -558,6 +556,7 @@ fun SettingsScreen(
                                                 if (useRounded) Icons.AutoMirrored.Rounded.Logout else Icons.AutoMirrored.Filled.Logout,
                                                 title = { Text(stringResource(Res.string.logout), color = MaterialTheme.colorScheme.error) },
                                                 iconTint = MaterialTheme.colorScheme.error,
+                                                showChevron = false,
                                                 onClick = {
                                                     showLogoutConfirmation = true
                                                 }
@@ -672,7 +671,7 @@ fun SettingsDesktopOverlay(
             ) {
                 val title = when {
                     editingThemeJson != null -> "Theme Editor"
-                    showThemer -> "Themer"
+                    showThemer -> "Theme"
                     showDebugLogs -> "Debug Logs"
                     else -> activeCategory.title
                 }
@@ -710,7 +709,7 @@ fun SettingsDesktopOverlay(
                 val navigationState = remember(editingThemeJson, showThemer, showDebugLogs, activeCategory) {
                     when {
                         editingThemeJson != null -> "editor" to editingThemeJson
-                        showThemer -> "themer" to null
+                        showThemer -> "theme" to null
                         showDebugLogs -> "logs" to null
                         else -> activeCategory.name to null
                     }
@@ -721,10 +720,10 @@ fun SettingsDesktopOverlay(
                     transitionSpec = {
                         if (reduceMotion) {
                             EnterTransition.None togetherWith ExitTransition.None
+                        } else if (settingsPageRank(targetState.first) >= settingsPageRank(initialState.first)) {
+                            PhoenixPageTransitions.pushEnter() togetherWith PhoenixPageTransitions.pushExit()
                         } else {
-                            (fadeIn(animationSpec = tween(300)) + slideInVertically(animationSpec = tween(300)) { 20 }).togetherWith(
-                                fadeOut(animationSpec = tween(200))
-                            )
+                            PhoenixPageTransitions.popEnter() togetherWith PhoenixPageTransitions.popExit()
                         }
                     },
                     modifier = Modifier.fillMaxSize(),
@@ -732,8 +731,8 @@ fun SettingsDesktopOverlay(
                 ) { (target, data) ->
                     if (target == "editor") {
                         ThemeEditorScreen(themeJson = data!!, onBack = { onEditingThemeJsonChanged(null) })
-                    } else if (target == "themer") {
-                        ThemingSettingsContent(onNavigateToEditor = { onEditingThemeJsonChanged(it) })
+                    } else if (target == "theme") {
+                        ThemeSettingsContent(onNavigateToEditor = { onEditingThemeJsonChanged(it) })
                     } else if (target == "logs") {
                         DebugLogScreen(onBack = { onShowDebugLogsChanged(false) })
                     } else {
@@ -923,13 +922,6 @@ private fun DesktopSettingsNavItem(
     }
 }
 
-private fun connectedSettingsShape(first: Boolean, last: Boolean) = RoundedCornerShape(
-    topStart = if (first) 20.dp else 5.dp,
-    topEnd = if (first) 20.dp else 5.dp,
-    bottomStart = if (last) 20.dp else 5.dp,
-    bottomEnd = if (last) 20.dp else 5.dp
-)
-
 private fun SettingsSection.subtitle(): String = when (this) {
     SettingsSection.ACCOUNT -> "Manage your account details and security"
     SettingsSection.PROFILES -> "Customize your appearance across servers"
@@ -944,7 +936,7 @@ private fun SettingsSection.subtitle(): String = when (this) {
     SettingsSection.NOTIFICATIONS -> "Control how you're notified"
     SettingsSection.ADVANCED -> "Developer settings and experimental features"
     SettingsSection.ADDITIONAL -> "Profile enhancements, emoji tweaks, logger and text replacement"
-    SettingsSection.UPDATES -> "Check for updates and read the changelog"
+    SettingsSection.UPDATES -> "Check for updates and read release notes"
     SettingsSection.ABOUT -> "App information and credits"
 }
 
@@ -1001,11 +993,10 @@ fun rememberSettingsSearchEntries(): List<SettingsSearchEntry> {
         add(SettingsSearchEntry("root-chat", "Chat", "Control how you interact with chat and media", "Chat", "App Settings", "gestures tap swipe message display", getIcon(Icons.Rounded.Forum, Icons.Filled.Forum), "rose", SettingsSearchDestination.Advanced))
         add(SettingsSearchEntry("root-notifications", "Notifications", "Control how you're notified", "Notifications", "App Settings", "push mentions sounds", getIcon(Icons.Rounded.Notifications, Icons.Filled.Notifications), "rose", SettingsSearchDestination.Notifications))
         add(SettingsSearchEntry("root-about", "About", "App information and credits", "About", "App Settings", "version info credits developer", getIcon(Icons.Rounded.Info, Icons.Filled.Info), "neutral", SettingsSearchDestination.Advanced))
-        add(SettingsSearchEntry("root-themer", "Themer", "Manage and edit themes", "Themer", "App Settings", "theming colors custom aliucord", getIcon(Icons.Rounded.Palette, Icons.Filled.Palette), "orange", SettingsSearchDestination.Theming))
+        add(SettingsSearchEntry("root-themer", "Theme", "Theme mode, wallpaper, and custom themes", "Theme", "App Settings", "theming colors custom aliucord", getIcon(Icons.Rounded.Palette, Icons.Filled.Palette), "orange", SettingsSearchDestination.Theming))
         add(SettingsSearchEntry("root-logout", "Log Out", "Sign out of your account", "Logout", "Account", "sign out exit", getIcon(Icons.AutoMirrored.Rounded.Logout, Icons.AutoMirrored.Filled.Logout), "neutral", SettingsSearchDestination.Logout))
         
         add(SettingsSearchEntry("appearance-theme", "Theme Mode", "Auto, Light, Dark, or AMOLED", "Appearance", "Theme", "dark light amoled", getIcon(Icons.Rounded.Palette, Icons.Filled.Palette), "orange", SettingsSearchDestination.Appearance))
-        add(SettingsSearchEntry("appearance-pure-black", "Pure Black", "Use pure black backgrounds in dark mode", "Appearance", "Theme", "amoled", getIcon(Icons.Rounded.Palette, Icons.Filled.Palette), "orange", SettingsSearchDestination.Appearance))
         add(SettingsSearchEntry("appearance-compact", "Compact Messages", "Denser layout for chat", "Appearance", "Display", "compact message denser", getIcon(Icons.Rounded.Palette, Icons.Filled.Palette), "orange", SettingsSearchDestination.Appearance))
         add(SettingsSearchEntry("appearance-bubbles", "Chat Bubbles", "Display messages inside rounded chat bubbles", "Appearance", "Display", "chat bubbles message layout theme", getIcon(Icons.Rounded.Palette, Icons.Filled.Palette), "orange", SettingsSearchDestination.Appearance))
         add(SettingsSearchEntry("root-additional", "Additional", "Profile enhancements, emoji tweaks, logger and text replacement", "Additional", "App Settings", "3y3 userbg userpfp nitro emoji realmojis message logger silent typing text replacement favorites server pinned channels", getIcon(Icons.Rounded.AutoAwesome, Icons.Filled.AutoAwesome), "neutral", SettingsSearchDestination.Advanced))

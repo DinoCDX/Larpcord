@@ -171,14 +171,7 @@ private fun SettingsSearchResultRow(
     horizontalPadding: Dp,
     onClick: () -> Unit,
 ) {
-    val cornerRadius = 20.dp
-    val reducedRadius = 5.dp
-    val shape = RoundedCornerShape(
-        topStart = if (isFirst) cornerRadius else reducedRadius,
-        topEnd = if (isFirst) cornerRadius else reducedRadius,
-        bottomStart = if (isLast) cornerRadius else reducedRadius,
-        bottomEnd = if (isLast) cornerRadius else reducedRadius,
-    )
+    val shape = connectedSettingsShape(isFirst, isLast)
     
     val path = listOfNotNull(entry.screen, entry.section).distinct().joinToString(" / ")
 
